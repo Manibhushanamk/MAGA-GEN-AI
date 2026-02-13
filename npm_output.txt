@@ -1,0 +1,2 @@
+'\"cd frontend && npm init -y && npm install next react react-dom axios tailwindcss postcss autoprefixer\"' is not recognized as an internal or external command,
+operable program or batch file.
