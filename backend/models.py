@@ -36,6 +36,7 @@ class ProjectAnalysisResponse(BaseModel):
     total_duration: int
     total_cost: CostEstimate
     feasibility_status: str
+    constraint_issues: List[str] = Field(default_factory=list, description="List of constraint violations")
     optimization_suggestions: List[str]
     simulation_results: SimulationResult
     critical_path_tasks: List[str]

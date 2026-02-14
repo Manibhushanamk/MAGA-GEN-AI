@@ -79,14 +79,20 @@ async def analyze_project(project_input: ProjectInput):
 
     # 4. Constraints
     constraint_engine = ConstraintEngine()
-    feasibility = constraint_engine.check_feasibility(schedule, total_cost, project_input)
+    feasibility = constraint_engine.check_feasibility(
+        schedule, 
+        total_cost, 
+        project_input,
+        tasks_dict
+    )
 
     # 5. Simulation
     risk_simulator = RiskSimulator()
-    simulation_results = risk_simulator.run_simulation(schedule)
+    simulation_results = risk_simulator.run_simulation(DEFAULT_TASKS, project_input)
 
     # 6. LLM Summary
     project_data = {
+        "input_parameters": project_input.dict(),
         "duration": total_duration,
         "cost_breakdown": total_cost_estimate.dict(),
         "feasibility": feasibility,
@@ -106,6 +112,7 @@ async def analyze_project(project_input: ProjectInput):
         total_duration=total_duration,
         total_cost=total_cost_estimate,
         feasibility_status="Feasible" if feasibility['feasible'] else "Infeasible",
+        constraint_issues=feasibility.get("issues", []),
         optimization_suggestions=feasibility.get("suggestions", []),
         simulation_results=simulation_results,
         critical_path_tasks=critical_path,

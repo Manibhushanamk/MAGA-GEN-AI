@@ -1,33 +1,80 @@
 import numpy as np
+import networkx as nx
+import math
 from typing import Dict, List
-from backend.models import SimulationResult, ProjectInput
+from backend.models import SimulationResult, ProjectInput, ConstructionTask
 
 class RiskSimulator:
-    def run_simulation(self, schedule: Dict[str, Dict[str, int]], num_simulations: int = 500) -> SimulationResult:
+    def run_simulation(
+        self, 
+        tasks: List[ConstructionTask],
+        project_input: ProjectInput,
+        num_simulations: int = 500
+    ) -> SimulationResult:
         """
         Runs Monte Carlo simulations to estimate project duration risk.
-        TODO: Implement random variation in task durations (±15%).
+        Logic:
+        1. Build graph structure.
+        2. Calculate base durations.
+        3. For N runs: vary durations (0.85-1.15) and compute critical path length.
+        4. Calculate P50, P80, and Risk Probability.
         """
-        # Placeholder logic
-        # Assume base duration is the max end date from deterministic schedule
-        base_duration = max((t['end'] for t in schedule.values()), default=0)
+        # 1. Build Graph & Base Durations
+        graph = nx.DiGraph()
+        base_durations = {}
         
-        # Simulate variations
+        for task in tasks:
+            # Calculate deterministic duration (matching Scheduler logic)
+            duration = math.ceil(task.base_duration_per_sqyard * project_input.area)
+            base_durations[task.id] = max(1, int(duration))
+            graph.add_node(task.id)
+            for dep in task.dependencies:
+                graph.add_edge(dep, task.id)
+        
+        # Safety check for cycles
+        if not nx.is_directed_acyclic_graph(graph):
+            return SimulationResult(
+                p50_duration=0, p80_duration=0, deadline_risk_probability=100.0
+            )
+
+        # Pre-compute topological order for fast iteration
+        topo_order = list(nx.topological_sort(graph))
+        
         simulated_durations = []
-        for _ in range(num_simulations):
-            # precise variation logic: random factor between 0.85 and 1.15 applied to total duration
-            variation = np.random.uniform(0.85, 1.15)
-            simulated_durations.append(base_duration * variation)
         
+        # 2. Run Simulations
+        for _ in range(num_simulations):
+            # Sample durations for this run
+            run_durations = {}
+            for t_id, base in base_durations.items():
+                variation = np.random.uniform(0.85, 1.15)
+                run_durations[t_id] = base * variation
+            
+            # Forward Pass to find Total Duration
+            dataset_ef = {node: 0.0 for node in graph.nodes()}
+            
+            for task_id in topo_order:
+                predecessors = list(graph.predecessors(task_id))
+                if predecessors:
+                    es = max(dataset_ef[p] for p in predecessors)
+                else:
+                    es = 0.0
+                
+                dataset_ef[task_id] = es + run_durations[task_id]
+            
+            project_duration = max(dataset_ef.values(), default=0)
+            simulated_durations.append(project_duration)
+            
+        # 3. Analyze Results
         p50 = np.percentile(simulated_durations, 50)
         p80 = np.percentile(simulated_durations, 80)
         
-        # Probability of missing deadline (if deadline is known, passed in context or assumed)
-        # For this skeleton, we'll just return a placeholder probability
-        risk_prob = 0.5 
-
+        deadline = project_input.deadline
+        risk_count = sum(1 for d in simulated_durations if d > deadline)
+        risk_prob = (risk_count / num_simulations) * 100 # Return as percentage
+        
         return SimulationResult(
-            p50_duration=p50,
-            p80_duration=p80,
-            deadline_risk_probability=risk_prob
+            p50_duration=float(round(p50, 1)), # Round for cleaner JSON
+            p80_duration=float(round(p80, 1)),
+            deadline_risk_probability=float(round(risk_prob, 1))
         )
